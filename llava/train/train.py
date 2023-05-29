@@ -69,6 +69,7 @@ class DataArguments:
     image_token_len: int = 0
     image_folder: Optional[str] = field(default=None)
     image_aspect_ratio: str = 'square'
+    image_patch_size: int = 14
 
 
 @dataclass
@@ -459,7 +460,7 @@ class LazySupervisedDataset(Dataset):
                 image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
             else:
                 image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
-            cur_token_len = (image.shape[1]//14) * (image.shape[2]//14)   # FIXME: 14 is hardcoded patch size
+            cur_token_len = (image.shape[1]//self.multimodal_cfg['image_patch_size']) * (image.shape[2]//self.multimodal_cfg['image_patch_size'])
             sources = preprocess_multimodal(
                 copy.deepcopy([e["conversations"] for e in sources]),
                 self.multimodal_cfg, cur_token_len)
@@ -528,7 +529,8 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                                     image_folder=data_args.image_folder,
                                     image_aspect_ratio=data_args.image_aspect_ratio,
                                     use_im_start_end=getattr(data_args, 'mm_use_im_start_end', False),
-                                    image_processor=getattr(data_args, 'image_processor', None)))
+                                    image_processor=getattr(data_args, 'image_processor', None),
+                                    image_patch_size=data_args.image_patch_size))
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
                 eval_dataset=None,

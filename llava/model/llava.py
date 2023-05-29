@@ -22,7 +22,8 @@ from torch.nn import CrossEntropyLoss
 
 from transformers import AutoConfig, AutoModelForCausalLM, \
                          LlamaConfig, LlamaModel, LlamaForCausalLM, \
-                         CLIPVisionModel, CLIPImageProcessor
+                         CLIPVisionModel, CLIPImageProcessor, AutoImageProcessor, \
+                         ViTModel
 
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
@@ -45,7 +46,10 @@ class LlavaLlamaModel(LlamaModel):
 
         if hasattr(config, "mm_vision_tower"):
             # HACK: for FSDP
-            self.vision_tower = [CLIPVisionModel.from_pretrained(config.mm_vision_tower)]
+            if config.mm_vision_tower.startswith("openai/clip"):
+                self.vision_tower = [CLIPVisionModel.from_pretrained(config.mm_vision_tower)]
+            else:
+                self.vision_tower = [ViTModel.from_pretrained(config.mm_vision_tower)]
             # self.vision_tower = CLIPVisionModel.from_pretrained(config.mm_vision_tower)
 
         if hasattr(config, "use_mm_proj"):
@@ -55,10 +59,13 @@ class LlavaLlamaModel(LlamaModel):
                                   pretrain_mm_mlp_adapter=None, tune_mm_mlp_adapter=False):
         self.config.mm_vision_tower = vision_tower
 
-        image_processor = CLIPImageProcessor.from_pretrained(vision_tower)
+        image_processor = AutoImageProcessor.from_pretrained(vision_tower)
 
         if not hasattr(self, 'vision_tower'):
-            vision_tower = CLIPVisionModel.from_pretrained(vision_tower)
+            if vision_tower.startswith("openai/clip"):
+                vision_tower = CLIPVisionModel.from_pretrained(vision_tower)
+            else:
+                vision_tower = ViTModel.from_pretrained(vision_tower)
         else:
             vision_tower = self.vision_tower[0]
         vision_tower.requires_grad_(False)
