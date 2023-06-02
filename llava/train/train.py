@@ -24,6 +24,8 @@ from typing import Dict, Optional, Sequence
 
 import torch
 
+from peft import LoraConfig, get_peft_model
+
 import transformers
 from torch.utils.data import Dataset
 from llava.train.llava_trainer import LLaVATrainer
@@ -562,6 +564,18 @@ def train():
 
     if model_args.freeze_backbone:
         model.model.requires_grad_(False)
+    else:
+        # Peft
+        lora_config = LoraConfig(
+            r=8,
+            lora_alpha=16,
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+            lora_target_modules=["q_proj", "v_proj"]
+        )
+        model.model = get_peft_model(model.model, lora_config)
+        print(model.model)
 
     if 'mpt' in model_args.model_name_or_path:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
