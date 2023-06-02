@@ -663,9 +663,10 @@ def train():
             lora_dropout=0.05,
             bias="none",
             task_type="CAUSAL_LM",
-            target_modules=["q_proj", "v_proj"]``
+            target_modules=["q_proj", "v_proj"]
         )
         model = get_peft_model(model, lora_config)
+        model.get_model().embed_tokens.requires_grad_(True)
         model.print_trainable_parameters()
         print(model)
 
