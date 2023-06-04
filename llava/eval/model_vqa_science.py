@@ -9,11 +9,14 @@ import shortuuid
 from llava import LlavaLlamaForCausalLM
 from llava.conversation import conv_templates
 from llava.utils import disable_torch_init
-from transformers import CLIPVisionModel, CLIPImageProcessor, StoppingCriteria
+from transformers import CLIPVisionModel, CLIPImageProcessor, StoppingCriteria, \
+    ViTModel, AutoProcessor
 
 from PIL import Image
 import random
 import math
+
+from peft import LoraConfig, get_peft_model
 
 
 def split_list(lst, n):
@@ -130,6 +133,45 @@ def eval_model(args):
         if mm_use_im_start_end:
             vision_config.im_start_token, vision_config.im_end_token = tokenizer.convert_tokens_to_ids([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN])
         image_token_len = (vision_config.image_size // vision_config.patch_size) ** 2
+    elif args.lora_train:
+        # the model is trained with lora
+        model = LlavaLlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, use_cache=True)
+        tokenizer = AutoTokenizer.from_pretrained(args.lora_ckpt)
+
+        # initialize vit
+        if args.vision_tower.startswith("openai/clip"):
+            vision_tower_cls = CLIPVisionModel
+        else:
+            vision_tower_cls = ViTModel
+        vision_tower = vision_tower_cls.from_pretrained(args.vision_tower, torch_dtype=torch.float16, use_cache=True).cuda()
+        image_processor = AutoProcessor.from_pretrained(args.vision_tower, torch_dtype=torch.float16)
+
+        mm_use_im_start_end = getattr(model.config, "mm_use_im_start_end", False)
+        vision_config = vision_tower.config
+        vision_config.im_patch_token = tokenizer.convert_tokens_to_ids([DEFAULT_IMAGE_PATCH_TOKEN])[0]
+        vision_config.use_im_start_end = mm_use_im_start_end
+        if mm_use_im_start_end:
+            vision_config.im_start_token, vision_config.im_end_token = tokenizer.convert_tokens_to_ids([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN])
+
+        image_token_len = (vision_config.image_size // vision_config.patch_size) ** 2
+
+        mm_projector = torch.nn.Linear(vision_config.hidden_size, model.config.hidden_size)
+        model.model.mm_projector = mm_projector
+        model.model.vision_tower = [vision_tower]
+
+        # lora
+        lora_config = LoraConfig(
+            r=8,
+            lora_alpha=16,
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "v_proj"]
+        )
+        model = get_peft_model(model, lora_config)
+        finetuned_weights = torch.load(args.lora_ckpt, map_location='cpu')
+        model.load_state_dict(finetuned_weights)
+
     else:
         # in case of using a pretrained model with only a MLP projector weights
         model = LlavaLlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, use_cache=True).cuda()
@@ -304,6 +346,8 @@ if __name__ == "__main__":
     parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--answer-prompter", action="store_true")
+    parser.add_argument("--lora-train", action='store_true', help="the model is finetuned with lora")
+    parser.add_argument("--lora-ckpt", type=str, default="")
     args = parser.parse_args()
 
     eval_model(args)
