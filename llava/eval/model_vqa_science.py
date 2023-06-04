@@ -115,25 +115,7 @@ def eval_model(args):
     disable_torch_init()
     model_name = os.path.expanduser(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if args.mm_projector is None:
-        patch_config(model_name)
-        model = LlavaLlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, use_cache=True).cuda()
-        image_processor = CLIPImageProcessor.from_pretrained(model.config.mm_vision_tower, torch_dtype=torch.float16)
-
-        mm_use_im_start_end = getattr(model.config, "mm_use_im_start_end", False)
-        tokenizer.add_tokens([DEFAULT_IMAGE_PATCH_TOKEN], special_tokens=True)
-        if mm_use_im_start_end:
-            tokenizer.add_tokens([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN], special_tokens=True)
-
-        vision_tower = model.model.vision_tower[0]
-        vision_tower.to(device='cuda', dtype=torch.float16)
-        vision_config = vision_tower.config
-        vision_config.im_patch_token = tokenizer.convert_tokens_to_ids([DEFAULT_IMAGE_PATCH_TOKEN])[0]
-        vision_config.use_im_start_end = mm_use_im_start_end
-        if mm_use_im_start_end:
-            vision_config.im_start_token, vision_config.im_end_token = tokenizer.convert_tokens_to_ids([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN])
-        image_token_len = (vision_config.image_size // vision_config.patch_size) ** 2
-    elif args.lora_train:
+    if args.lora_train:
         # the model is trained with lora
         model = LlavaLlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, use_cache=True)
         tokenizer = AutoTokenizer.from_pretrained(args.lora_ckpt)
@@ -171,7 +153,24 @@ def eval_model(args):
         model = get_peft_model(model, lora_config)
         finetuned_weights = torch.load(args.lora_ckpt, map_location='cpu')
         model.load_state_dict(finetuned_weights)
+    elif args.mm_projector is None:
+        patch_config(model_name)
+        model = LlavaLlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, use_cache=True).cuda()
+        image_processor = CLIPImageProcessor.from_pretrained(model.config.mm_vision_tower, torch_dtype=torch.float16)
 
+        mm_use_im_start_end = getattr(model.config, "mm_use_im_start_end", False)
+        tokenizer.add_tokens([DEFAULT_IMAGE_PATCH_TOKEN], special_tokens=True)
+        if mm_use_im_start_end:
+            tokenizer.add_tokens([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN], special_tokens=True)
+
+        vision_tower = model.model.vision_tower[0]
+        vision_tower.to(device='cuda', dtype=torch.float16)
+        vision_config = vision_tower.config
+        vision_config.im_patch_token = tokenizer.convert_tokens_to_ids([DEFAULT_IMAGE_PATCH_TOKEN])[0]
+        vision_config.use_im_start_end = mm_use_im_start_end
+        if mm_use_im_start_end:
+            vision_config.im_start_token, vision_config.im_end_token = tokenizer.convert_tokens_to_ids([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN])
+        image_token_len = (vision_config.image_size // vision_config.patch_size) ** 2
     else:
         # in case of using a pretrained model with only a MLP projector weights
         model = LlavaLlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, use_cache=True).cuda()
