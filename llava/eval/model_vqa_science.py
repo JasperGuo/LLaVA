@@ -125,6 +125,7 @@ def eval_model(args):
         if hasattr(model.model, 'vision_tower'):
             delattr(model.model, 'vision_tower')
         model_vision_dict = model.model.initialize_vision_modules(args.vision_tower, mm_vision_select_layer=args.lora_mm_vision_select_layer)
+        model.get_model().vision_tower[0].cuda()
         image_processor = model_vision_dict['image_processor']
         image_token_len = model_vision_dict['image_token_len']
 
@@ -136,6 +137,7 @@ def eval_model(args):
         vision_config.use_im_start_end = mm_use_im_start_end
         if mm_use_im_start_end:
             vision_config.im_start_token, vision_config.im_end_token = tokenizer.convert_tokens_to_ids([DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN])
+        model.config.mm_use_im_start_end = mm_use_im_start_end
         print(vision_config)
         print(model.config)
 
